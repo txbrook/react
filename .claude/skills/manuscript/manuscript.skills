@@ -1,0 +1,654 @@
+# /manuscript — Academic Manuscript Project Builder
+
+This skill sets up a complete academic manuscript project from scratch.
+It creates template section files, generic build scripts, reference.docx, and an initial reference list.
+**Assumes the user already has `figures/` and `data/` ready.**
+
+---
+
+## Workflow
+
+Follow these steps exactly when this command is invoked:
+
+### Step 1 — Collect project information
+
+Use **AskUserQuestion** to gather:
+
+1. **Manuscript title** — full title of the paper
+2. **Authors** — comma-separated list
+3. **Section structure** — which sections to include (offer defaults)
+4. **Reference papers** — ask the user to provide any reference papers they want included.
+   Tell the user: *"Please paste your references as DOIs, PMIDs, or full citation text (one per line). You can also say 'none' to skip and fill them in later."*
+
+Default sections to offer (user can add/remove):
+- Abstract, Key Points, Introduction, Methods (Data Sources + Statistical Analysis), Results, Discussion, Data Availability, References
+
+---
+
+### Step 2 — Create directory structure
+
+Create these directories if they don't exist:
+```
+text/
+scripts/
+references/
+output/
+tables/
+figures/
+supplementary_figures/
+```
+
+---
+
+### Step 3 — Create `manuscript_config.yaml`
+
+Create this file in the project root, populated with the user's title, authors, and their chosen sections.
+
+**Template:**
+```yaml
+# manuscript_config.yaml
+# Edit figures, tables, and supplementary_figures to match your project.
+# Run: bash scripts/build_manuscript.sh
+
+project:
+  title: "TITLE_HERE"
+  authors: "AUTHORS_HERE"
+
+output:
+  combined: output/manuscript_combined.md
+  docx: output/manuscript.docx
+
+# Sections assembled in order.
+# 'type: title' gets # prefix (maps to Title style in Word).
+# 'heading' adds a ## heading before the file content. Set to null to omit.
+# 'subsections' inserts ### sub-headings before nested files.
+sections:
+  - type: title
+    file: text/title.md
+  - heading: "Abstract"
+    file: text/abstract.md
+  - heading: null
+    file: text/key_points.md
+  - heading: "Introduction"
+    file: text/introduction.md
+  - heading: "Materials and Methods"
+    subsections:
+      - heading: "Data Sources"
+        file: text/method_data_sources.md
+      - heading: "Statistical Analysis"
+        file: text/method_statistical_analysis.md
+  - heading: null
+    file: text/results.md
+  - heading: null
+    file: text/discussion.md
+  - heading: null
+    file: text/data_availability.md
+  - heading: null
+    file: text/references.md
+
+# Figures inserted after results. Add entries in display order.
+figures: []
+# Example:
+# figures:
+#   - file: figures/figure1.png
+#     alt: "Figure 1"
+#     caption: "**Figure 1.** Description of figure 1."
+
+# Tables inserted after figures. CSV files are auto-converted to Markdown tables.
+tables: []
+# Example:
+# tables:
+#   - file: tables/table1.csv
+#     caption: "**Table 1.** Description of table 1."
+
+# Supplementary figures appended at the end.
+supplementary_figures: []
+# Example:
+# supplementary_figures:
+#   - file: supplementary_figures/suppfig1.svg
+#     alt: "Supplementary Figure 1"
+#     caption: "**Supplementary Figure 1.** Description."
+```
+
+---
+
+### Step 4 — Create template section files in `text/`
+
+Create these files with placeholder content. Adapt section names to match what the user chose.
+
+**`text/title.md`**
+```
+YOUR MANUSCRIPT TITLE HERE
+```
+
+**`text/abstract.md`**
+```
+[Background] Briefly describe the problem and motivation.
+
+[Objective] State the study objective.
+
+[Methods] Summarize the analytical approach.
+
+[Results] Summarize the key findings with key numbers.
+
+[Conclusions] State the take-home message and implications.
+```
+
+**`text/key_points.md`**
+```
+## Key Points
+
+- [Key finding 1 — one sentence, quantitative if possible]
+- [Key finding 2 — one sentence]
+- [Key finding 3 — one sentence]
+```
+
+**`text/introduction.md`**
+```
+[Paragraph 1: Background and motivation — why does this problem matter?]
+
+[Paragraph 2: What is already known — summarize prior work with citations [1,2,3].]
+
+[Paragraph 3: Gap in knowledge — what is missing or uncertain?]
+
+[Paragraph 4: What this study does — briefly state approach and datasets.]
+
+[Paragraph 5: Aims — explicitly state the study aims/objectives.]
+```
+
+**`text/method_data_sources.md`**
+```
+[Describe each dataset used: name, sample size, population, data type, access/reference.]
+
+[Dataset 1: ...]
+
+[Dataset 2: ...]
+```
+
+**`text/method_statistical_analysis.md`**
+```
+[Describe the primary statistical method(s) used.]
+
+[Describe any sensitivity analyses, multiple testing correction, software packages.]
+
+[State significance thresholds used.]
+```
+
+**`text/results.md`**
+```
+## Results
+
+### [Primary Result Section Heading]
+
+[Describe primary results. Reference figures as Figure 1, tables as Table 1.]
+
+### [Secondary Result Section Heading]
+
+[Describe secondary results.]
+```
+
+**`text/discussion.md`**
+```
+## Discussion
+
+[Paragraph 1: Summary of main findings.]
+
+[Paragraph 2: Contextualize findings against prior literature with citations.]
+
+[Paragraph 3: Mechanistic interpretation or biological/clinical implications.]
+
+[Paragraph 4: Strengths of the study.]
+
+[Paragraph 5: Limitations and caveats.]
+
+[Paragraph 6: Conclusions and future directions.]
+```
+
+**`text/data_availability.md`**
+```
+## Data Availability
+
+[State where data are available, any access restrictions, and relevant accession numbers or URLs.]
+```
+
+**`text/references.md`**
+```
+## References
+
+[References will be populated here from user input.]
+```
+
+---
+
+### Step 5 — Create `scripts/create_reference.py`
+
+Create this file exactly as shown:
+
+```python
+#!/usr/bin/env python3
+"""Generate a pandoc reference.docx with standard academic styling.
+
+Styles: Times New Roman, all-black text, centered title,
+academic headings, double-spaced body, 1-inch margins.
+
+Usage: python3 scripts/create_reference.py
+Output: references/reference.docx
+"""
+
+import subprocess, sys
+from pathlib import Path
+
+REF = Path(__file__).parent.parent / "references" / "reference.docx"
+REF.parent.mkdir(parents=True, exist_ok=True)
+
+# Let pandoc generate the default reference.docx as a starting point
+result = subprocess.run(
+    ["pandoc", "-o", str(REF), "--print-default-data-file", "reference.docx"],
+    capture_output=True
+)
+if result.returncode != 0 or not REF.exists():
+    subprocess.run(
+        ["pandoc", "--output", str(REF), "-f", "markdown", "-t", "docx", "/dev/null"],
+        check=True,
+    )
+
+try:
+    from docx import Document
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+except ImportError:
+    print("ERROR: python-docx not installed. Run: pip install python-docx")
+    sys.exit(1)
+
+doc = Document(str(REF))
+FONT_NAME = "Times New Roman"
+BLACK = RGBColor(0, 0, 0)
+
+def set_style(style, size=12, bold=False, italic=False, color=BLACK,
+              font=FONT_NAME, alignment=None, space_after=None,
+              space_before=None, line_spacing=None, keep_next=False):
+    fmt = style.font
+    fmt.name = font
+    fmt.size = Pt(size)
+    fmt.bold = bold
+    fmt.italic = italic
+    fmt.color.rgb = color
+    pf = style.paragraph_format
+    if alignment is not None:
+        pf.alignment = alignment
+    if space_after is not None:
+        pf.space_after = Pt(space_after)
+    if space_before is not None:
+        pf.space_before = Pt(space_before)
+    if line_spacing is not None:
+        pf.line_spacing = Pt(line_spacing)
+    if keep_next:
+        pf.keep_with_next = True
+
+# Title
+try:
+    set_style(doc.styles["Title"], size=18, bold=True,
+              alignment=WD_ALIGN_PARAGRAPH.CENTER,
+              space_before=24, space_after=24, line_spacing=28)
+except KeyError:
+    pass
+
+# Subtitle / Author
+for name in ("Subtitle", "Author"):
+    try:
+        set_style(doc.styles[name], size=12, bold=False,
+                  alignment=WD_ALIGN_PARAGRAPH.CENTER, space_after=6)
+    except KeyError:
+        pass
+
+# Headings: ## → Heading 1, ### → Heading 2, etc.
+for name, (sz, sb, sa) in {
+    "Heading 1": (14, 18, 12),
+    "Heading 2": (13, 14, 8),
+    "Heading 3": (12, 12, 6),
+    "Heading 4": (12, 10, 4),
+}.items():
+    try:
+        set_style(doc.styles[name], size=sz, bold=True,
+                  space_before=sb, space_after=sa, keep_next=True)
+    except KeyError:
+        pass
+
+# Body text
+for name in ("Normal", "Body Text", "First Paragraph", "Compact", "Block Text"):
+    try:
+        set_style(doc.styles[name], size=12, line_spacing=24, space_after=6)
+    except KeyError:
+        pass
+
+# Figure captions
+try:
+    set_style(doc.styles["Image Caption"], size=10,
+              alignment=WD_ALIGN_PARAGRAPH.LEFT, space_after=6)
+except KeyError:
+    pass
+
+# Force all existing text to black
+for para in doc.paragraphs:
+    for run in para.runs:
+        run.font.color.rgb = BLACK
+
+# Margins: 1 inch all around
+for section in doc.sections:
+    section.top_margin    = Inches(1)
+    section.bottom_margin = Inches(1)
+    section.left_margin   = Inches(1)
+    section.right_margin  = Inches(1)
+
+doc.save(str(REF))
+print(f"Reference template saved: {REF}")
+```
+
+---
+
+### Step 6 — Create `scripts/build_manuscript.sh`
+
+Create this file exactly as shown:
+
+```bash
+#!/bin/bash
+# Generic academic manuscript builder
+# Reads configuration from manuscript_config.yaml in the project root.
+# Usage: bash scripts/build_manuscript.sh
+# Requirements: pandoc, python3, python-docx, pyyaml
+
+set -e
+cd "$(dirname "$0")/.."
+
+# ── Dependency checks ────────────────────────────────────────────────────────
+if ! command -v pandoc &>/dev/null; then
+  echo "ERROR: pandoc not found. Install from https://pandoc.org"
+  exit 1
+fi
+python3 -c "import yaml" 2>/dev/null || { echo "ERROR: pyyaml not installed. Run: pip install pyyaml"; exit 1; }
+python3 -c "from docx import Document" 2>/dev/null || { echo "ERROR: python-docx not installed. Run: pip install python-docx"; exit 1; }
+
+# ── Config check ─────────────────────────────────────────────────────────────
+if [ ! -f "manuscript_config.yaml" ]; then
+  echo "ERROR: manuscript_config.yaml not found."
+  exit 1
+fi
+
+# ── Generate reference.docx if missing ───────────────────────────────────────
+if [ ! -f "references/reference.docx" ]; then
+  echo "INFO: references/reference.docx not found — generating..."
+  python3 scripts/create_reference.py
+fi
+
+mkdir -p output
+
+# ── Build combined markdown ───────────────────────────────────────────────────
+python3 - <<'PYEOF'
+import yaml, os, csv, sys
+
+with open("manuscript_config.yaml", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
+
+out_cfg  = config.get("output", {})
+combined = out_cfg.get("combined", "output/manuscript_combined.md")
+os.makedirs(os.path.dirname(combined), exist_ok=True)
+
+lines = []
+
+def read_file(path):
+    if not os.path.exists(path):
+        print(f"  WARNING: {path} not found — skipping")
+        return ""
+    with open(path, encoding="utf-8") as f:
+        return f.read().strip()
+
+def csv_to_markdown(path, caption):
+    if not os.path.exists(path):
+        print(f"  WARNING: {path} not found — skipping table")
+        return ""
+    with open(path, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    if not rows:
+        return ""
+    headers = rows[0]
+    data    = rows[1:]
+    widths  = [
+        max(len(h), max((len(r[i]) if i < len(r) else 0) for r in data) if data else 0)
+        for i, h in enumerate(headers)
+    ]
+    def fmt(cells):
+        return "| " + " | ".join(
+            c.ljust(widths[i]) for i, c in enumerate(cells[:len(headers)])
+        ) + " |"
+    sep = "| " + " | ".join("-" * w for w in widths) + " |"
+    result = [caption, "", fmt(headers), sep]
+    for row in data:
+        result.append(fmt(row + [""] * (len(headers) - len(row))))
+    return "\n".join(result)
+
+# ── Sections ─────────────────────────────────────────────────────────────────
+for sec in config.get("sections", []):
+    # Title section: prefix with # for pandoc Title style
+    if sec.get("type") == "title":
+        content = read_file(sec["file"])
+        if content:
+            lines += [f"# {content}", ""]
+        continue
+
+    # Optional ## heading
+    if sec.get("heading"):
+        lines += [f"## {sec['heading']}", ""]
+
+    # Subsections (### headings)
+    for sub in sec.get("subsections", []):
+        if sub.get("heading"):
+            lines += [f"### {sub['heading']}", ""]
+        content = read_file(sub["file"])
+        if content:
+            lines += [content, ""]
+
+    # Main file (skip for pure-container sections)
+    if "file" in sec:
+        content = read_file(sec["file"])
+        if content:
+            lines += [content, ""]
+
+# ── Figures ───────────────────────────────────────────────────────────────────
+figures = config.get("figures", []) or []
+if figures:
+    lines += ["### Figures", ""]
+    for fig in figures:
+        lines.append(f"![{fig.get('alt', 'Figure')}]({fig['file']})")
+        lines.append("")
+        if fig.get("caption"):
+            lines += [fig["caption"], ""]
+
+# ── Tables ────────────────────────────────────────────────────────────────────
+tables = config.get("tables", []) or []
+if tables:
+    lines += ["### Tables", ""]
+    for tbl in tables:
+        md = csv_to_markdown(tbl["file"], tbl.get("caption", ""))
+        if md:
+            lines += [md, ""]
+
+# ── Supplementary figures ─────────────────────────────────────────────────────
+supp = config.get("supplementary_figures", []) or []
+if supp:
+    lines += ["## Supplementary Figures", ""]
+    for fig in supp:
+        lines.append(f"![{fig.get('alt', 'Supplementary Figure')}]({fig['file']})")
+        lines.append("")
+        if fig.get("caption"):
+            lines += [fig["caption"], ""]
+
+with open(combined, "w", encoding="utf-8") as out:
+    out.write("\n".join(lines))
+print(f"Combined markdown: {combined}")
+PYEOF
+
+# ── pandoc → Word ─────────────────────────────────────────────────────────────
+COMBINED=$(python3 -c "import yaml; c=yaml.safe_load(open('manuscript_config.yaml')); print(c.get('output',{}).get('combined','output/manuscript_combined.md'))")
+OUTPUT=$(python3   -c "import yaml; c=yaml.safe_load(open('manuscript_config.yaml')); print(c.get('output',{}).get('docx','output/manuscript.docx'))")
+
+echo "Converting to Word: $OUTPUT"
+pandoc "$COMBINED" \
+  -o "$OUTPUT" \
+  --reference-doc=references/reference.docx \
+  --shift-heading-level-by=-1
+
+# ── Post-process: image sizing from reference.docx + force black text ─────────
+python3 - <<'PYEOF'
+import yaml
+from docx import Document
+from docx.shared import RGBColor, Pt
+from lxml import etree
+
+WP_NS  = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+A_NS   = "http://schemas.openxmlformats.org/drawingml/2006/main"
+PIC_NS = "http://schemas.openxmlformats.org/drawingml/2006/picture"
+BLACK  = RGBColor(0, 0, 0)
+
+with open("manuscript_config.yaml", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
+output_path = config.get("output", {}).get("docx", "output/manuscript.docx")
+
+# Read image dimensions from reference.docx
+ref = Document("references/reference.docx")
+ref_width = ref_height = None
+for para in ref.paragraphs:
+    for inline in para._element.findall(f".//{{{WP_NS}}}inline"):
+        ext = inline.find(f"{{{WP_NS}}}extent")
+        if ext is not None:
+            ref_width  = int(ext.get("cx"))
+            ref_height = int(ext.get("cy"))
+            break
+    if ref_width:
+        break
+if not ref_width:
+    ref_width, ref_height = 5943600, 3962400  # 6.5" x 4.33" fallback
+
+print(f"Image reference size: {ref_width/914400:.2f} x {ref_height/914400:.2f} in")
+
+doc = Document(output_path)
+
+# Force all text black
+for para in doc.paragraphs:
+    for run in para.runs:
+        run.font.color.rgb = BLACK
+for table in doc.tables:
+    for row in table.rows:
+        for cell in row.cells:
+            for para in cell.paragraphs:
+                for run in para.runs:
+                    run.font.color.rgb = BLACK
+
+# Resize images and convert inline → anchor (top-and-bottom text wrap)
+img_counter = 100
+for para in doc.paragraphs:
+    for inline in para._element.findall(f".//{{{WP_NS}}}inline"):
+        ext = inline.find(f"{{{WP_NS}}}extent")
+        cur_w = int(ext.get("cx"))
+        cur_h = int(ext.get("cy"))
+        new_w = ref_width
+        new_h = int(cur_h * (ref_width / cur_w)) if cur_w else ref_height
+
+        graphic = inline.find(f"{{{A_NS}}}graphic")
+        if graphic is not None:
+            for a_ext in graphic.findall(f".//{{{PIC_NS}}}spPr/{{{A_NS}}}xfrm/{{{A_NS}}}ext"):
+                a_ext.set("cx", str(new_w))
+                a_ext.set("cy", str(new_h))
+
+        docPr           = inline.find(f"{{{WP_NS}}}docPr")
+        cNvGraphicFr    = inline.find(f"{{{WP_NS}}}cNvGraphicFramePr")
+
+        img_counter += 1
+        anchor = etree.SubElement(
+            inline.getparent(), f"{{{WP_NS}}}anchor",
+            attrib={"distT":"152400","distB":"152400","distL":"0","distR":"0",
+                    "simplePos":"0","relativeHeight":str(img_counter),
+                    "behindDoc":"0","locked":"0","layoutInCell":"1","allowOverlap":"1"}
+        )
+        etree.SubElement(anchor, f"{{{WP_NS}}}simplePos", x="0", y="0")
+        posH = etree.SubElement(anchor, f"{{{WP_NS}}}positionH", relativeFrom="margin")
+        etree.SubElement(posH, f"{{{WP_NS}}}align").text = "center"
+        posV = etree.SubElement(anchor, f"{{{WP_NS}}}positionV", relativeFrom="paragraph")
+        etree.SubElement(posV, f"{{{WP_NS}}}posOffset").text = "0"
+        etree.SubElement(anchor, f"{{{WP_NS}}}extent", cx=str(new_w), cy=str(new_h))
+        etree.SubElement(anchor, f"{{{WP_NS}}}effectExtent", l="0", t="0", r="0", b="0")
+        etree.SubElement(anchor, f"{{{WP_NS}}}wrapTopAndBottom")
+        for el in (docPr, cNvGraphicFr, graphic):
+            if el is not None:
+                anchor.append(el)
+        inline.getparent().remove(inline)
+
+    if para._element.findall(f".//{{{WP_NS}}}anchor"):
+        para.paragraph_format.space_before = Pt(18)
+        para.paragraph_format.space_after  = Pt(12)
+
+doc.save(output_path)
+print(f"Post-processed: {output_path}")
+PYEOF
+
+echo "Done: $OUTPUT"
+```
+
+---
+
+### Step 7 — Run `create_reference.py`
+
+After creating the scripts, run:
+```bash
+python3 scripts/create_reference.py
+```
+This generates `references/reference.docx`. If it fails (pandoc or python-docx missing), tell the user the install commands and skip silently.
+
+---
+
+### Step 8 — Populate `text/references.md`
+
+Format the references the user provided using standard numbered citation format:
+
+```
+## References
+
+1. AuthorA AB, AuthorB CD, et al. Title of the paper. *Journal Name*. Year;Vol(Issue):Pages. doi:...
+2. ...
+```
+
+If the user gave DOIs, use them. If they gave PMIDs, note the PMID. If they gave raw text, clean and format it. If they said "none", leave a placeholder.
+
+---
+
+### Step 9 — Print setup summary
+
+After all files are created, show the user:
+
+```
+Manuscript project initialized.
+
+Structure:
+  text/                     ← Edit section .md files here
+  scripts/build_manuscript.sh
+  scripts/create_reference.py
+  references/reference.docx ← Pandoc Word style template
+  manuscript_config.yaml    ← Configure sections, figures, tables
+
+Next steps:
+  1. Edit text/*.md files with your manuscript content
+  2. Add figure paths and captions to manuscript_config.yaml under 'figures:'
+  3. Add table CSV paths under 'tables:'
+  4. Run:  bash scripts/build_manuscript.sh
+  5. Output: output/manuscript.docx
+```
+
+---
+
+## Notes for Claude
+
+- Always use the **Write** tool to create files (never echo/heredoc in bash).
+- Create `scripts/` directory before writing scripts; set them executable with `chmod +x`.
+- If the user provides `$ARGUMENTS`, treat it as the manuscript title.
+- Be adaptive: if the user only wants certain sections, adjust `manuscript_config.yaml` accordingly.
+- Keep template placeholder text clearly marked with `[...]` brackets so users know what to replace.
+- If figures/ already has files, mention them in the summary so the user knows to add them to `manuscript_config.yaml`.
